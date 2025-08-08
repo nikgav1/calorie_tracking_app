@@ -4,7 +4,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { LoginScreen } from './screens/LoginScreen.js';
 import { HomeScreen } from './screens/HomeScreen.js';
 import { ProfileScreen } from './screens/ProfileScreen.js';
+import { SignupScreen } from './screens/SignupScreen.js';
 import { AuthContext } from './auth/AuthContext.js';
+import { api } from './auth/api.js';
 import jwtStorage from './utils/jwtStorage.js';
 
 const Stack = createStackNavigator();
@@ -12,9 +14,19 @@ const Stack = createStackNavigator();
 export default function App() {
   const [userToken, setUserToken] = useState(null);
   const authContext = {
-    signIn: async (token) => {
-      await jwtStorage.set(token)
-      setUserToken(token);
+    signIn: async (emailInput, passwordInput) => {
+      try {
+        const response = await api.post("/auth/login", {
+          email: emailInput,
+          password: passwordInput
+        })
+
+        const { token } = response.data;
+        await jwtStorage.set(token)
+        setUserToken(token);
+      } catch (error) {
+        setUserToken(null)
+      }
     },
     signOut: async () => {
       await jwtStorage.delete()
@@ -35,7 +47,10 @@ export default function App() {
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {userToken == null ? (
-            <Stack.Screen name="Login" component={LoginScreen} />
+            <>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Signup" component={SignupScreen} />
+            </>
           ) : (
             <>
               <Stack.Screen name="Home" component={HomeScreen} />

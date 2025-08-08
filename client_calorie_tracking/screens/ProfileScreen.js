@@ -1,11 +1,39 @@
-import { View, Text, StyleSheet, Button} from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import GoBackButton from '../components/GoBackButton';
+import { useEffect, useState } from 'react';
+import { api } from '../auth/api';
 
 export function ProfileScreen() {
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await api.get('/data/user');
+        setUserData(response.data);
+      } catch (error) {
+        console.error('Failed to fetch user data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUser();
+  }, []);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Profile</Text>
-      <GoBackButton></GoBackButton>
+      {loading && <Text>Loading...</Text>}
+      {!loading && userData && (
+        <>
+          <Text>Email: {userData.email}</Text>
+          <Text>ID: {userData.userId}</Text>
+          <Text>Calorie Goal: {userData.calorie_goal}</Text>
+        </>
+      )}
+      <GoBackButton />
     </View>
   );
 }

@@ -1,8 +1,9 @@
 import axios from 'axios';
+import { BACKEND_URL } from '@env'
 import jwtStorage from '../utils/jwtStorage';
 
 export const api = axios.create({
-  baseURL: 'https://your-server.com/api',
+  baseURL: BACKEND_URL,
 });
 
 api.interceptors.request.use(async (config) => {

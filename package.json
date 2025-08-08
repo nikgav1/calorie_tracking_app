@@ -7,6 +7,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "frontend:start": "cd client_calorie_tracking && npm run start",
+    "backend:start": "cd server_calorie_tracking && npm run dev",
+    "start": "node start"
   }
 }

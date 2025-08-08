@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
 export const AuthContext = createContext({
-  signIn: (_token) => {},
+  signIn: async (email, password) => {},
   signOut: () => {}
 });
