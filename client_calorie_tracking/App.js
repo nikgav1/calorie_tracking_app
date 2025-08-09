@@ -6,6 +6,7 @@ import { HomeScreen } from './screens/HomeScreen.js';
 import { ProfileScreen } from './screens/ProfileScreen.js';
 import { SignupScreen } from './screens/SignupScreen.js';
 import { AuthContext } from './auth/AuthContext.js';
+import { LogFoodScreen } from './screens/LogFoodScreen.js';
 import { api } from './auth/api.js';
 import jwtStorage from './utils/jwtStorage.js';
 
@@ -55,6 +56,7 @@ export default function App() {
             <>
               <Stack.Screen name="Home" component={HomeScreen} />
               <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="LogFood" component={LogFoodScreen} />
             </>
           )}
         </Stack.Navigator>

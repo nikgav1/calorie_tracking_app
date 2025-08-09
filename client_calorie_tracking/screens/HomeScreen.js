@@ -11,6 +11,7 @@ export function HomeScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Calorie Tracking</Text>
       <Button title="Go to Profile" onPress={() => navigation.navigate('Profile')} />
+      <Button title="Log Food" onPress={() => navigation.navigate('LogFood')} />
       <Button title="Sign Out" onPress={signOut} />
     </View>
   );
