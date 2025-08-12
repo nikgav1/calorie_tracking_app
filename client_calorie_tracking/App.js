@@ -26,6 +26,7 @@ export default function App() {
         await jwtStorage.set(token)
         setUserToken(token);
       } catch (error) {
+        await jwtStorage.delete()
         setUserToken(null)
       }
     },

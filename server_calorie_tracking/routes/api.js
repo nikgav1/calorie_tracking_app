@@ -27,7 +27,7 @@ router.post(
         .jpeg({ quality: 80 })
         .toFile(optimizedPath);
 
-      // Upload optimized image to OpenAI Files for 'vision' purpose
+      // Upload optimized image to OpenAI Files
       const fileUpload = await openai.files.create({
         file: fs.createReadStream(optimizedPath),
         purpose: "vision",
@@ -41,7 +41,7 @@ router.post(
       const fileId = fileUpload.id;
 
       const aiResponse = await openai.responses.create({
-        model: "gpt-5",
+        model: "gpt-5-mini",
         input: [
           {
             role: "system",
@@ -64,7 +64,6 @@ router.post(
       res.json({
         nutritionData: aiResponse.output_text,
       });
-      console.log(aiResponse.output_text);
     } catch (err) {
       console.error("Error processing image:", err);
       res.status(500).json({ error: "Image processing failed" });

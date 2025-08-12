@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import GoBackButton from '../components/GoBackButton';
 import { useEffect, useState } from 'react';
 import { api } from '../auth/api';
+import { getUserOffsetMinutes } from '../utils/time';
 
 export function ProfileScreen() {
   const [userData, setUserData] = useState(null);
@@ -24,6 +25,7 @@ export function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <Text>{getUserOffsetMinutes()}</Text>
       <Text style={styles.title}>Profile</Text>
       {loading && <Text>Loading...</Text>}
       {!loading && userData && (
