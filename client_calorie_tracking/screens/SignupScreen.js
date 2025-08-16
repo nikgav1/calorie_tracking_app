@@ -425,7 +425,7 @@ function InnerForm({
 
             {touched.ccal && errors.ccal && <Text style={styles.errorText}>{errors.ccal}</Text>}
 
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={{ flexDirection: "column", marginTop: 12 }}>
               <TouchableOpacity style={styles.presetBtn} onPress={() => applyTdeePreset(0.80)}>
                 <Text style={styles.presetText}>Lose weight (-20%)</Text>
               </TouchableOpacity>
