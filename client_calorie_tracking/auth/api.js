@@ -1,6 +1,7 @@
 import axios from 'axios';
-import { BACKEND_URL } from '@env'
 import jwtStorage from '../utils/jwtStorage';
+
+const BACKEND_URL = "https://my-backend-120228107025.europe-north1.run.app"
 
 export const api = axios.create({
   baseURL: BACKEND_URL,

@@ -1,8 +1,16 @@
 {
   "expo": {
-    "name": "client_calorie_tracking",
+    "name": "Calorie Tracker",
     "slug": "client_calorie_tracking",
+    "scheme": "calorietracker",
     "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "extra": {
       "eas": {
         "projectId": "71c605cc-18e2-442e-9b68-d227805d194a"
@@ -12,6 +20,20 @@
       "bundleIdentifier": "calorie-tracking.nikgav1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/71c605cc-18e2-442e-9b68-d227805d194a"
+    },
+    "android": {
+      "package": "com.nikgav1.client_calorie_tracking",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff"
       }
     }
   }

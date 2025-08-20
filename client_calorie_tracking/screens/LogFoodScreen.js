@@ -12,6 +12,12 @@ import {
   Modal,
   ScrollView,
   Platform,
+  InputAccessoryView,
+  Keyboard,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  findNodeHandle,
+  UIManager,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
@@ -19,6 +25,8 @@ import { api } from "../auth/api";
 import { Formik } from "formik";
 import * as Yup from "yup";
 import jwtStorage from "../utils/jwtStorage";
+
+const GLOBAL_DONE_ACCESSORY = "GLOBAL_DONE_ACCESSORY";
 
 export function LogFoodScreen() {
   // photo + upload state
@@ -40,9 +48,6 @@ export function LogFoodScreen() {
 
   // stable payload for edit modal (created once when opening modal)
   const [editModalPayload, setEditModalPayload] = useState(null);
-
-  // meal selector modal for forms
-  const [mealSelectorVisible, setMealSelectorVisible] = useState(false);
 
   const validationSchema = Yup.object().shape({
     name: Yup.string().required("Name is required").trim().min(2),
@@ -96,7 +101,7 @@ export function LogFoodScreen() {
     }
   }
 
-  // ---------- camera ----------
+  // camera / upload unchanged (kept for completeness)
   async function openNativeCameraAndHandle() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -147,14 +152,12 @@ export function LogFoodScreen() {
     }
   }
 
-  // ---------- upload ----------
   async function uploadPhotoWithApi(photoFile) {
     if (!photoFile || !photoFile.uri) {
       Alert.alert("No photo", "No photo to upload");
       return;
     }
     let uri = photoFile.uri;
-    console.log("[upload] original uri:", uri);
 
     if (Platform.OS === "android" && uri.startsWith("content://")) {
       try {
@@ -162,12 +165,8 @@ export function LogFoodScreen() {
         const dest = `${FileSystem.cacheDirectory}${filename}`;
         await FileSystem.copyAsync({ from: uri, to: dest });
         uri = dest;
-        console.log("[upload] copied to", dest);
       } catch (err) {
-        console.warn(
-          "copy content uri failed; proceeding with original uri",
-          err
-        );
+        console.warn("copy content uri failed; proceeding with original uri", err);
       }
     }
 
@@ -239,7 +238,6 @@ export function LogFoodScreen() {
     fetchTodayDay();
   }
 
-  // ---------- helpers ----------
   function capitalize(s) {
     try {
       return String(s).charAt(0).toUpperCase() + String(s).slice(1);
@@ -248,20 +246,25 @@ export function LogFoodScreen() {
     }
   }
 
-  // OPEN modal - create a stable payload object and set it once
+  // Create stable payload when opening edit modal. Be flexible about calorie field names.
   function openLogModal(meal, log) {
+    const kcalVal = Number(log.ccal ?? log.kcal ?? 0);
+    const proteinVal = Number(log.protein ?? log.prot ?? 0);
+    const fatVal = Number(log.fat ?? 0);
+    const carbsVal = Number(log.carbohydrates ?? log.carbs ?? 0);
+
     const payload = {
       meal,
       logId: String(log._id),
       initial: {
         name: log.name ?? "",
-        kcal: String(Number(log.ccal || 0)),
-        protein: String(Number(log.protein || 0)),
-        fat: String(Number(log.fat || 0)),
-        carbohydrates: String(Number(log.carbohydrates || 0)),
+        kcal: String(kcalVal),
+        protein: String(proteinVal),
+        fat: String(fatVal),
+        carbohydrates: String(carbsVal),
       },
     };
-    setEditModalPayload(payload); // stable reference for modal
+    setEditModalPayload(payload);
     setLogModalVisible(true);
   }
 
@@ -285,7 +288,7 @@ export function LogFoodScreen() {
     }
   }
 
-  // Inline dropdown meal selector
+  // Meal selector unchanged
   function MealSelector({ value, onChange }) {
     const options = [
       { label: "Breakfast", value: "breakfast" },
@@ -332,7 +335,7 @@ export function LogFoodScreen() {
     );
   }
 
-  // Initial UI
+  // Initial UI + create modal — improved keyboard handling + auto-scroll
   function InitialUI() {
     const totals = todayDay?.totals || {
       ccal: 0,
@@ -347,8 +350,50 @@ export function LogFoodScreen() {
       carbohydrates: userData?.carbohydrates_goal ?? 0,
     };
 
+    // refs for auto-scroll in create modal
+    const scrollRef = useRef(null);
+    const nameRef = useRef(null);
+    const kcalRef = useRef(null);
+    const proteinRef = useRef(null);
+    const fatRef = useRef(null);
+    const carbsRef = useRef(null);
+
+    // helper: measure and scroll input into view
+    const scrollToInput = (inputRef) => {
+      try {
+        const node = findNodeHandle(inputRef.current);
+        const scrollNode = findNodeHandle(scrollRef.current);
+        if (!node || !scrollNode) return;
+        UIManager.measureLayout(
+          node,
+          scrollNode,
+          () => {},
+          (x, y, width, height) => {
+            // scroll a bit above the field
+            scrollRef.current.scrollTo({ y: Math.max(0, y - 20), animated: true });
+          }
+        );
+      } catch (e) {
+        // ignore measurement errors
+      }
+    };
+
     return (
       <SafeAreaView style={styles.centered}>
+        {Platform.OS === "ios" && (
+          <InputAccessoryView nativeID={GLOBAL_DONE_ACCESSORY}>
+            <View style={styles.accessoryContainer}>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity
+                style={styles.accessoryButton}
+                onPress={() => Keyboard.dismiss()}
+              >
+                <Text style={styles.accessoryButtonText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
+
         <View style={styles.headerRow}>
           <TouchableOpacity
             style={styles.navButton}
@@ -368,10 +413,6 @@ export function LogFoodScreen() {
         </View>
 
         <Text style={styles.title}>Add Meal</Text>
-
-        <View style={styles.infoBox}>
-          <Text>Calorie Taking App</Text>
-        </View>
 
         <View style={{ width: "100%", paddingHorizontal: 8 }}>
           <Text style={styles.sectionTitle}>Today's goals</Text>
@@ -445,254 +486,338 @@ export function LogFoodScreen() {
           animationType="fade"
           onRequestClose={() => setSuccessModalVisible(false)}
         >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Log the food!</Text>
-
-              {!uploadResult && photo ? (
-                <>
-                  <Image
-                    source={{ uri: photo.uri }}
-                    style={{ width: 220, height: 220, marginBottom: 12 }}
-                    resizeMode="cover"
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
-                      { width: "100%", marginBottom: 8 },
-                    ]}
-                    onPress={() => uploadPhotoWithApi(photo)}
-                    disabled={uploading}
-                  >
-                    {uploading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.modalButtonText}>
-                        Upload & Analyze
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.modalButton,
-                      { width: "100%", backgroundColor: "#999" },
-                    ]}
-                    onPress={() => {
-                      setSuccessModalVisible(false);
-                      setPhoto(null);
-                    }}
-                    disabled={uploading}
-                  >
-                    <Text style={styles.modalButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                </>
-              ) : !uploadResult ? (
-                <ActivityIndicator />
-              ) : (
-                <Formik
-                  enableReinitialize
-                  initialValues={{
-                    name: uploadResult.name ?? "",
-                    meal: uploadResult.meal ?? "breakfast",
-                    kcal: (
-                      uploadResult.ccal ??
-                      uploadResult.kcal ??
-                      ""
-                    ).toString(),
-                    protein: (uploadResult.protein ?? "").toString(),
-                    fat: (uploadResult.fat ?? "").toString(),
-                    carbohydrates: (
-                      uploadResult.carbohydrates ?? ""
-                    ).toString(),
-                  }}
-                  validationSchema={validationSchema}
-                  onSubmit={async (values, { setSubmitting }) => {
-                    try {
-                      setSubmitting(true);
-                      const payload = {
-                        meal: values.meal,
-                        date: new Date().toISOString(),
-                        log: {
-                          name: values.name.trim(),
-                          ccal: Number.parseInt(values.kcal || "0", 10) || 0,
-                          protein:
-                            Number.parseFloat(values.protein || "0") || 0,
-                          fat: Number.parseFloat(values.fat || "0") || 0,
-                          carbohydrates:
-                            Number.parseFloat(values.carbohydrates || "0") || 0,
-                        },
-                      };
-                      await api.post("/log/foodLog", payload);
-                      setSubmitting(false);
-                      setSuccessModalVisible(false);
-                      setUploadResult(null);
-                      setPhoto(null);
-                      handleAfterLoggingSaved();
-                      Alert.alert("Saved", "Food logged successfully.");
-                    } catch (err) {
-                      setSubmitting(false);
-                      console.error("Save food error", err);
-                      Alert.alert(
-                        "Save failed",
-                        err?.response?.data?.message ||
-                          String(err?.message || err)
-                      );
-                    }
-                  }}
+          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+            <View style={styles.modalContainer}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ width: "100%", alignItems: "center" }}
+                keyboardVerticalOffset={Platform.select({ ios: 80, android: 60 })}
+              >
+                <ScrollView
+                  ref={scrollRef}
+                  contentContainerStyle={[styles.modalContent, { width: "90%" }]}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  {({
-                    handleChange,
-                    handleBlur,
-                    handleSubmit,
-                    values,
-                    errors,
-                    touched,
-                    isSubmitting,
-                    isValid,
-                    setFieldValue,
-                  }) => (
+                  <Text style={styles.modalTitle}>Log the food!</Text>
+
+                  {!uploadResult && photo ? (
                     <>
-                      <TextInput
+                      <Image
+                        source={{ uri: photo.uri }}
+                        style={{ width: 220, height: 220, marginBottom: 12 }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity
                         style={[
-                          styles.input,
+                          styles.modalButton,
                           { width: "100%", marginBottom: 8 },
                         ]}
-                        value={values.name}
-                        onChangeText={handleChange("name")}
-                        onBlur={handleBlur("name")}
-                        placeholder="Name"
-                        autoCapitalize="words"
-                        returnKeyType="done"
-                      />
-                      {touched.name && errors.name && (
-                        <Text style={{ color: "red", alignSelf: "flex-start" }}>
-                          {errors.name}
-                        </Text>
-                      )}
-
-                      <MealSelector
-                        value={values.meal}
-                        onChange={(v) => setFieldValue("meal", v)}
-                      />
-
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { width: "100%", marginBottom: 8 },
-                        ]}
-                        value={values.kcal}
-                        onChangeText={handleChange("kcal")}
-                        onBlur={handleBlur("kcal")}
-                        placeholder="Kcal"
-                        keyboardType="numeric"
-                        returnKeyType="done"
-                      />
-                      {touched.kcal && errors.kcal && (
-                        <Text style={{ color: "red", alignSelf: "flex-start" }}>
-                          {errors.kcal}
-                        </Text>
-                      )}
-
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { width: "100%", marginBottom: 8 },
-                        ]}
-                        value={values.protein}
-                        onChangeText={handleChange("protein")}
-                        onBlur={handleBlur("protein")}
-                        placeholder="Protein (g)"
-                        keyboardType="numeric"
-                      />
-                      {touched.protein && errors.protein && (
-                        <Text style={{ color: "red", alignSelf: "flex-start" }}>
-                          {errors.protein}
-                        </Text>
-                      )}
-
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { width: "100%", marginBottom: 8 },
-                        ]}
-                        value={values.fat}
-                        onChangeText={handleChange("fat")}
-                        onBlur={handleBlur("fat")}
-                        placeholder="Fat (g)"
-                        keyboardType="numeric"
-                      />
-                      {touched.fat && errors.fat && (
-                        <Text style={{ color: "red", alignSelf: "flex-start" }}>
-                          {errors.fat}
-                        </Text>
-                      )}
-
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { width: "100%", marginBottom: 12 },
-                        ]}
-                        value={values.carbohydrates}
-                        onChangeText={handleChange("carbohydrates")}
-                        onBlur={handleBlur("carbohydrates")}
-                        placeholder="Carbohydrates (g)"
-                        keyboardType="numeric"
-                      />
-                      {touched.carbohydrates && errors.carbohydrates && (
-                        <Text style={{ color: "red", alignSelf: "flex-start" }}>
-                          {errors.carbohydrates}
-                        </Text>
-                      )}
-
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          width: "100%",
-                          justifyContent: "space-between",
-                          marginTop: 8,
-                        }}
+                        onPress={() => uploadPhotoWithApi(photo)}
+                        disabled={uploading}
                       >
-                        <TouchableOpacity
-                          style={[
-                            styles.modalButton,
-                            { backgroundColor: "#999", width: "48%" },
-                          ]}
-                          onPress={() => setSuccessModalVisible(false)}
-                          disabled={isSubmitting}
-                        >
-                          <Text style={styles.modalButtonText}>Back</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={[
-                            styles.modalButton,
-                            {
-                              width: "48%",
-                              backgroundColor: isSubmitting
-                                ? "#66a"
-                                : "#007aff",
-                              opacity: !isValid ? 0.7 : 1,
-                            },
-                          ]}
-                          onPress={handleSubmit}
-                          disabled={isSubmitting || !isValid}
-                        >
-                          {isSubmitting ? (
-                            <ActivityIndicator color="#fff" />
-                          ) : (
-                            <Text style={styles.modalButtonText}>Save</Text>
-                          )}
-                        </TouchableOpacity>
-                      </View>
+                        {uploading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.modalButtonText}>
+                            Upload & Analyze
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.modalButton,
+                          { width: "100%", backgroundColor: "#999" },
+                        ]}
+                        onPress={() => {
+                          setSuccessModalVisible(false);
+                          setPhoto(null);
+                        }}
+                        disabled={uploading}
+                      >
+                        <Text style={styles.modalButtonText}>Cancel</Text>
+                      </TouchableOpacity>
                     </>
+                  ) : !uploadResult ? (
+                    <ActivityIndicator />
+                  ) : (
+                    <Formik
+                      enableReinitialize
+                      initialValues={{
+                        name: uploadResult.name ?? "",
+                        meal: uploadResult.meal ?? "breakfast",
+                        kcal: (
+                          uploadResult.ccal ??
+                          uploadResult.kcal ??
+                          ""
+                        ).toString(),
+                        protein: (uploadResult.protein ?? "").toString(),
+                        fat: (uploadResult.fat ?? "").toString(),
+                        carbohydrates: (
+                          uploadResult.carbohydrates ?? ""
+                        ).toString(),
+                      }}
+                      validationSchema={validationSchema}
+                      onSubmit={async (values, { setSubmitting }) => {
+                        try {
+                          setSubmitting(true);
+                          const payload = {
+                            meal: values.meal,
+                            date: new Date().toISOString(),
+                            log: {
+                              name: values.name.trim(),
+                              ccal:
+                                Number.parseInt(values.kcal || "0", 10) || 0,
+                              protein:
+                                Number.parseFloat(values.protein || "0") || 0,
+                              fat: Number.parseFloat(values.fat || "0") || 0,
+                              carbohydrates:
+                                Number.parseFloat(values.carbohydrates || "0") ||
+                                0,
+                            },
+                          };
+                          await api.post("/log/foodLog", payload);
+                          setSubmitting(false);
+                          setSuccessModalVisible(false);
+                          setUploadResult(null);
+                          setPhoto(null);
+                          handleAfterLoggingSaved();
+                          Alert.alert("Saved", "Food logged successfully.");
+                        } catch (err) {
+                          setSubmitting(false);
+                          console.error("Save food error", err);
+                          Alert.alert(
+                            "Save failed",
+                            err?.response?.data?.message ||
+                              String(err?.message || err)
+                          );
+                        }
+                      }}
+                    >
+                      {({
+                        handleChange,
+                        handleBlur,
+                        handleSubmit,
+                        values,
+                        errors,
+                        touched,
+                        isSubmitting,
+                        isValid,
+                        setFieldValue,
+                      }) => (
+                        <>
+                          {/* Name */}
+                          <Text style={styles.fieldLabel}>Name</Text>
+                          <View style={styles.rowInput}>
+                            <TextInput
+                              ref={nameRef}
+                              style={[styles.input, { flex: 1 }]}
+                              value={values.name}
+                              onChangeText={handleChange("name")}
+                              onBlur={handleBlur("name")}
+                              placeholder="Name"
+                              autoCapitalize="words"
+                              returnKeyType="next"
+                              inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                              onFocus={() => scrollToInput(nameRef)}
+                              onSubmitEditing={() => kcalRef.current?.focus?.()}
+                            />
+                            {Platform.OS === "android" && (
+                              <TouchableOpacity
+                                style={styles.inlineDone}
+                                onPress={() => Keyboard.dismiss()}
+                              >
+                                <Text style={styles.inlineDoneText}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {touched.name && errors.name && (
+                            <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                              {errors.name}
+                            </Text>
+                          )}
+
+                          <MealSelector
+                            value={values.meal}
+                            onChange={(v) => setFieldValue("meal", v)}
+                          />
+
+                          {/* Kcal */}
+                          <Text style={styles.fieldLabel}>Kcal</Text>
+                          <View style={styles.rowInput}>
+                            <TextInput
+                              ref={kcalRef}
+                              style={[styles.input, { flex: 1 }]}
+                              value={values.kcal}
+                              onChangeText={handleChange("kcal")}
+                              onBlur={handleBlur("kcal")}
+                              placeholder="Kcal"
+                              keyboardType="numeric"
+                              returnKeyType="next"
+                              blurOnSubmit={false}
+                              inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                              onFocus={() => scrollToInput(kcalRef)}
+                              onSubmitEditing={() => proteinRef.current?.focus?.()}
+                            />
+                            {Platform.OS === "android" && (
+                              <TouchableOpacity
+                                style={styles.inlineDone}
+                                onPress={() => Keyboard.dismiss()}
+                              >
+                                <Text style={styles.inlineDoneText}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {touched.kcal && errors.kcal && (
+                            <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                              {errors.kcal}
+                            </Text>
+                          )}
+
+                          {/* Protein */}
+                          <Text style={styles.fieldLabel}>Protein (g)</Text>
+                          <View style={styles.rowInput}>
+                            <TextInput
+                              ref={proteinRef}
+                              style={[styles.input, { flex: 1 }]}
+                              value={values.protein}
+                              onChangeText={handleChange("protein")}
+                              onBlur={handleBlur("protein")}
+                              placeholder="Protein (g)"
+                              keyboardType="numeric"
+                              returnKeyType="next"
+                              blurOnSubmit={false}
+                              inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                              onFocus={() => scrollToInput(proteinRef)}
+                              onSubmitEditing={() => fatRef.current?.focus?.()}
+                            />
+                            {Platform.OS === "android" && (
+                              <TouchableOpacity
+                                style={styles.inlineDone}
+                                onPress={() => Keyboard.dismiss()}
+                              >
+                                <Text style={styles.inlineDoneText}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {touched.protein && errors.protein && (
+                            <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                              {errors.protein}
+                            </Text>
+                          )}
+
+                          {/* Fat */}
+                          <Text style={styles.fieldLabel}>Fat (g)</Text>
+                          <View style={styles.rowInput}>
+                            <TextInput
+                              ref={fatRef}
+                              style={[styles.input, { flex: 1 }]}
+                              value={values.fat}
+                              onChangeText={handleChange("fat")}
+                              onBlur={handleBlur("fat")}
+                              placeholder="Fat (g)"
+                              keyboardType="numeric"
+                              returnKeyType="next"
+                              blurOnSubmit={false}
+                              inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                              onFocus={() => scrollToInput(fatRef)}
+                              onSubmitEditing={() => carbsRef.current?.focus?.()}
+                            />
+                            {Platform.OS === "android" && (
+                              <TouchableOpacity
+                                style={styles.inlineDone}
+                                onPress={() => Keyboard.dismiss()}
+                              >
+                                <Text style={styles.inlineDoneText}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {touched.fat && errors.fat && (
+                            <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                              {errors.fat}
+                            </Text>
+                          )}
+
+                          {/* Carbohydrates */}
+                          <Text style={styles.fieldLabel}>Carbohydrates (g)</Text>
+                          <View style={styles.rowInput}>
+                            <TextInput
+                              ref={carbsRef}
+                              style={[styles.input, { flex: 1 }]}
+                              value={values.carbohydrates}
+                              onChangeText={handleChange("carbohydrates")}
+                              onBlur={handleBlur("carbohydrates")}
+                              placeholder="Carbohydrates (g)"
+                              keyboardType="numeric"
+                              returnKeyType="done"
+                              blurOnSubmit={true}
+                              inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                              onFocus={() => scrollToInput(carbsRef)}
+                              onSubmitEditing={() => Keyboard.dismiss()}
+                            />
+                            {Platform.OS === "android" && (
+                              <TouchableOpacity
+                                style={styles.inlineDone}
+                                onPress={() => Keyboard.dismiss()}
+                              >
+                                <Text style={styles.inlineDoneText}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {touched.carbohydrates && errors.carbohydrates && (
+                            <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                              {errors.carbohydrates}
+                            </Text>
+                          )}
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              width: "100%",
+                              justifyContent: "space-between",
+                              marginTop: 8,
+                            }}
+                          >
+                            <TouchableOpacity
+                              style={[
+                                styles.modalButton,
+                                { backgroundColor: "#999", width: "48%" },
+                              ]}
+                              onPress={() => setSuccessModalVisible(false)}
+                              disabled={isSubmitting}
+                            >
+                              <Text style={styles.modalButtonText}>Back</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={[
+                                styles.modalButton,
+                                {
+                                  width: "48%",
+                                  backgroundColor: isSubmitting ? "#66a" : "#007aff",
+                                  opacity: !isValid ? 0.7 : 1,
+                                },
+                              ]}
+                              onPress={handleSubmit}
+                              disabled={isSubmitting || !isValid}
+                            >
+                              {isSubmitting ? (
+                                <ActivityIndicator color="#fff" />
+                              ) : (
+                                <Text style={styles.modalButtonText}>Save</Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      )}
+                    </Formik>
                   )}
-                </Formik>
-              )}
+                </ScrollView>
+              </KeyboardAvoidingView>
             </View>
-          </View>
+          </TouchableWithoutFeedback>
         </Modal>
 
-        {/* EDIT modal: isolated component */}
+        {/* Edit modal */}
         <EditLogModal
           visible={logModalVisible}
           payload={editModalPayload}
@@ -714,7 +839,7 @@ export function LogFoodScreen() {
   return <InitialUI />;
 }
 
-// ---------- Edit modal component (isolated & memoized) ----------
+// Edit modal with same robust behavior (auto-scroll, accessory, Done everywhere)
 const EditLogModal = React.memo(function EditLogModal({
   visible,
   payload,
@@ -733,6 +858,14 @@ const EditLogModal = React.memo(function EditLogModal({
   // store original numeric values for delta display
   const originalRef = useRef({ ccal: 0, protein: 0, fat: 0, carbohydrates: 0 });
 
+  // refs + scrollRef for auto-scroll
+  const scrollRef = useRef(null);
+  const nameRef = useRef(null);
+  const kcalRef = useRef(null);
+  const proteinRef = useRef(null);
+  const fatRef = useRef(null);
+  const carbsRef = useRef(null);
+
   useEffect(() => {
     if (visible && payload && payload.initial) {
       // initialize local fields only when modal opens or payload changes
@@ -743,17 +876,37 @@ const EditLogModal = React.memo(function EditLogModal({
       setCarbs(payload.initial.carbohydrates ?? "0");
 
       originalRef.current = {
-        ccal: Number(payload.initial.kcal || 0),
-        protein: Number(payload.initial.protein || 0),
-        fat: Number(payload.initial.fat || 0),
-        carbohydrates: Number(payload.initial.carbohydrates || 0),
+        ccal: Number(payload.initial.kcal ?? 0),
+        protein: Number(payload.initial.protein ?? 0),
+        fat: Number(payload.initial.fat ?? 0),
+        carbohydrates: Number(payload.initial.carbohydrates ?? 0),
       };
 
       setErrors({});
+      Keyboard.dismiss();
     }
   }, [visible, payload]);
 
   if (!visible) return null;
+
+  // helper: measure and scroll input into view (edit modal)
+  const scrollToInput = (inputRef) => {
+    try {
+      const node = findNodeHandle(inputRef.current);
+      const scrollNode = findNodeHandle(scrollRef.current);
+      if (!node || !scrollNode) return;
+      UIManager.measureLayout(
+        node,
+        scrollNode,
+        () => {},
+        (x, y, width, height) => {
+          scrollRef.current.scrollTo({ y: Math.max(0, y - 20), animated: true });
+        }
+      );
+    } catch (e) {
+      // ignore
+    }
+  };
 
   const renderDelta = (newStr, origVal) => {
     const newVal = newStr === "" ? 0 : Number(newStr);
@@ -804,7 +957,6 @@ const EditLogModal = React.memo(function EditLogModal({
     try {
       await editSchema.validate(toValidate, { abortEarly: false });
 
-      // valid — send to server
       const payloadToSend = {
         name: toValidate.name,
         ccal: Number(toValidate.kcal || 0),
@@ -819,7 +971,6 @@ const EditLogModal = React.memo(function EditLogModal({
         throw new Error("Missing payload identifiers");
       }
 
-      // Use parent's current date on save (parent will refetch). If you want the same date used previously, pass it in payload.
       const dateParam = new Date().toISOString();
       const endpoint = `/log/days/${encodeURIComponent(dateParam)}/${encodeURIComponent(
         meal
@@ -863,7 +1014,7 @@ const EditLogModal = React.memo(function EditLogModal({
             )}/${encodeURIComponent(logId)}`;
             await api.delete(endpoint);
             setDeleting(false);
-            onSaved && onSaved(); // parent will refetch
+            onSaved && onSaved();
             Alert.alert("Deleted");
           } catch (err) {
             setDeleting(false);
@@ -876,141 +1027,227 @@ const EditLogModal = React.memo(function EditLogModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.modalContainer}>
-        <View style={[styles.modalContent, { width: "90%" }]}>
-          <Text style={styles.modalTitle}>Log details</Text>
-
-          <TextInput
-            style={[styles.input, { width: "100%", marginBottom: 8 }]}
-            value={name}
-            onChangeText={setName}
-            editable={!saving && !deleting}
-            placeholder="Name"
-          />
-          {errors.name && (
-            <Text style={{ color: "red", alignSelf: "flex-start" }}>
-              {errors.name}
-            </Text>
-          )}
-
-          {/* Kcal row */}
-          <View style={{ width: "100%", marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontWeight: "600" }}>Kcal</Text>
-              <Text style={{ color: "#666" }}>was: {originalRef.current.ccal}</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-              <TextInput
-                style={[styles.input, { flex: 1, width: undefined, marginBottom: 0 }]}
-                value={kcal}
-                onChangeText={setKcal}
-                editable={!saving && !deleting}
-                keyboardType="numeric"
-                returnKeyType="done"
-              />
-              <View style={{ width: 56, alignItems: "center", marginLeft: 8 }}>
-                {renderDelta(kcal, originalRef.current.ccal)}
-              </View>
-            </View>
-            {errors.kcal && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.kcal}</Text>}
-          </View>
-
-          {/* Protein row */}
-          <View style={{ width: "100%", marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontWeight: "600" }}>Protein (g)</Text>
-              <Text style={{ color: "#666" }}>was: {originalRef.current.protein}</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-              <TextInput
-                style={[styles.input, { flex: 1, width: undefined, marginBottom: 0 }]}
-                value={protein}
-                onChangeText={setProtein}
-                editable={!saving && !deleting}
-                keyboardType="numeric"
-                returnKeyType="done"
-              />
-              <View style={{ width: 56, alignItems: "center", marginLeft: 8 }}>
-                {renderDelta(protein, originalRef.current.protein)}
-              </View>
-            </View>
-            {errors.protein && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.protein}</Text>}
-          </View>
-
-          {/* Fat row */}
-          <View style={{ width: "100%", marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontWeight: "600" }}>Fat (g)</Text>
-              <Text style={{ color: "#666" }}>was: {originalRef.current.fat}</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-              <TextInput
-                style={[styles.input, { flex: 1, width: undefined, marginBottom: 0 }]}
-                value={fat}
-                onChangeText={setFat}
-                editable={!saving && !deleting}
-                keyboardType="numeric"
-                returnKeyType="done"
-              />
-              <View style={{ width: 56, alignItems: "center", marginLeft: 8 }}>
-                {renderDelta(fat, originalRef.current.fat)}
-              </View>
-            </View>
-            {errors.fat && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.fat}</Text>}
-          </View>
-
-          {/* Carbs row */}
-          <View style={{ width: "100%", marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontWeight: "600" }}>Carbohydrates (g)</Text>
-              <Text style={{ color: "#666" }}>was: {originalRef.current.carbohydrates}</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-              <TextInput
-                style={[styles.input, { flex: 1, width: undefined, marginBottom: 0 }]}
-                value={carbs}
-                onChangeText={setCarbs}
-                editable={!saving && !deleting}
-                keyboardType="numeric"
-                returnKeyType="done"
-              />
-              <View style={{ width: 56, alignItems: "center", marginLeft: 8 }}>
-                {renderDelta(carbs, originalRef.current.carbohydrates)}
-              </View>
-            </View>
-            {errors.carbohydrates && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.carbohydrates}</Text>}
-          </View>
-
-          <View style={{ flexDirection: "row", width: "100%", justifyContent: "space-between", marginTop: 8 }}>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: "#999", width: "30%" }]}
-              onPress={() => {
-                onClose && onClose();
-              }}
-              disabled={saving || deleting}
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => onClose && onClose()}>
+      <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+        <View style={styles.modalContainer}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ width: "100%", alignItems: "center" }}
+            keyboardVerticalOffset={Platform.select({ ios: 80, android: 60 })}
+          >
+            <ScrollView
+              ref={scrollRef}
+              contentContainerStyle={[styles.modalContent, { width: "90%" }]}
+              keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.modalButtonText}>Close</Text>
-            </TouchableOpacity>
+              {Platform.OS === "ios" && (
+                <InputAccessoryView nativeID={GLOBAL_DONE_ACCESSORY}>
+                  <View style={styles.accessoryContainer}>
+                    <View style={{ flex: 1 }} />
+                    <TouchableOpacity
+                      style={styles.accessoryButton}
+                      onPress={() => Keyboard.dismiss()}
+                    >
+                      <Text style={styles.accessoryButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </InputAccessoryView>
+              )}
 
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: "#e74c3c", width: "30%" }]}
-              onPress={confirmAndDelete}
-              disabled={saving || deleting}
-            >
-              {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Delete</Text>}
-            </TouchableOpacity>
+              <Text style={styles.modalTitle}>Log details</Text>
 
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: "#007aff", width: "30%" }]}
-              onPress={validateAndSave}
-              disabled={saving || deleting}
-            >
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Save</Text>}
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.fieldLabel}>Name</Text>
+              <View style={styles.rowInput}>
+                <TextInput
+                  ref={nameRef}
+                  style={[styles.input, { flex: 1 }]}
+                  value={name}
+                  onChangeText={setName}
+                  editable={!saving && !deleting}
+                  placeholder="Name"
+                  returnKeyType="next"
+                  inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                  onFocus={() => scrollToInput(nameRef)}
+                  onSubmitEditing={() => kcalRef.current?.focus?.()}
+                />
+                {Platform.OS === "android" && (
+                  <TouchableOpacity
+                    style={styles.inlineDone}
+                    onPress={() => Keyboard.dismiss()}
+                  >
+                    <Text style={styles.inlineDoneText}>Done</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {errors.name && (
+                <Text style={{ color: "red", alignSelf: "flex-start" }}>
+                  {errors.name}
+                </Text>
+              )}
+
+              {/* Kcal */}
+              <View style={{ width: "100%", marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "600" }}>Kcal</Text>
+                  <Text style={{ color: "#666" }}>was: {originalRef.current.ccal}</Text>
+                </View>
+
+                <View style={styles.rowInput}>
+                  <TextInput
+                    ref={kcalRef}
+                    style={[styles.input, { flex: 1 }]}
+                    value={kcal}
+                    onChangeText={setKcal}
+                    editable={!saving && !deleting}
+                    keyboardType="numeric"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                    onFocus={() => scrollToInput(kcalRef)}
+                    onSubmitEditing={() => proteinRef.current?.focus?.()}
+                  />
+                  {Platform.OS === "android" && (
+                    <TouchableOpacity
+                      style={styles.inlineDone}
+                      onPress={() => Keyboard.dismiss()}
+                    >
+                      <Text>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {errors.kcal && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.kcal}</Text>}
+              </View>
+
+              {/* Protein */}
+              <View style={{ width: "100%", marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "600" }}>Protein (g)</Text>
+                  <Text style={{ color: "#666" }}>was: {originalRef.current.protein}</Text>
+                </View>
+
+                <View style={styles.rowInput}>
+                  <TextInput
+                    ref={proteinRef}
+                    style={[styles.input, { flex: 1 }]}
+                    value={protein}
+                    onChangeText={setProtein}
+                    editable={!saving && !deleting}
+                    keyboardType="numeric"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                    onFocus={() => scrollToInput(proteinRef)}
+                    onSubmitEditing={() => fatRef.current?.focus?.()}
+                  />
+                  {Platform.OS === "android" && (
+                    <TouchableOpacity
+                      style={styles.inlineDone}
+                      onPress={() => Keyboard.dismiss()}
+                    >
+                      <Text>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {errors.protein && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.protein}</Text>}
+              </View>
+
+              {/* Fat */}
+              <View style={{ width: "100%", marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "600" }}>Fat (g)</Text>
+                  <Text style={{ color: "#666" }}>was: {originalRef.current.fat}</Text>
+                </View>
+
+                <View style={styles.rowInput}>
+                  <TextInput
+                    ref={fatRef}
+                    style={[styles.input, { flex: 1 }]}
+                    value={fat}
+                    onChangeText={setFat}
+                    editable={!saving && !deleting}
+                    keyboardType="numeric"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                    onFocus={() => scrollToInput(fatRef)}
+                    onSubmitEditing={() => carbsRef.current?.focus?.()}
+                  />
+                  {Platform.OS === "android" && (
+                    <TouchableOpacity
+                      style={styles.inlineDone}
+                      onPress={() => Keyboard.dismiss()}
+                    >
+                      <Text>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {errors.fat && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.fat}</Text>}
+              </View>
+
+              {/* Carbs */}
+              <View style={{ width: "100%", marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "600" }}>Carbohydrates (g)</Text>
+                  <Text style={{ color: "#666" }}>was: {originalRef.current.carbohydrates}</Text>
+                </View>
+
+                <View style={styles.rowInput}>
+                  <TextInput
+                    ref={carbsRef}
+                    style={[styles.input, { flex: 1 }]}
+                    value={carbs}
+                    onChangeText={setCarbs}
+                    editable={!saving && !deleting}
+                    keyboardType="numeric"
+                    returnKeyType="done"
+                    blurOnSubmit={true}
+                    inputAccessoryViewID={GLOBAL_DONE_ACCESSORY}
+                    onFocus={() => scrollToInput(carbsRef)}
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                  />
+                  {Platform.OS === "android" && (
+                    <TouchableOpacity
+                      style={styles.inlineDone}
+                      onPress={() => Keyboard.dismiss()}
+                    >
+                      <Text>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {errors.carbohydrates && <Text style={{ color: "red", alignSelf: "flex-start" }}>{errors.carbohydrates}</Text>}
+              </View>
+
+              <View style={{ flexDirection: "row", width: "100%", justifyContent: "space-between", marginTop: 8 }}>
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: "#999", width: "30%" }]}
+                  onPress={() => {
+                    onClose && onClose();
+                  }}
+                  disabled={saving || deleting}
+                >
+                  <Text style={styles.modalButtonText}>Close</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: "#e74c3c", width: "30%" }]}
+                  onPress={confirmAndDelete}
+                  disabled={saving || deleting}
+                >
+                  {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Delete</Text>}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: "#007aff", width: "30%" }]}
+                  onPress={validateAndSave}
+                  disabled={saving || deleting}
+                >
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 },
@@ -1020,8 +1257,6 @@ const EditLogModal = React.memo(function EditLogModal({
   return sameVisible && sameId;
 });
 
-
-// Small presentational stat bar
 function StatBar({ label, value, goal, unit }) {
   const pct = percentLocal(value, goal);
   return (
@@ -1087,25 +1322,6 @@ const styles = StyleSheet.create({
   logName: { fontSize: 15 },
   logCals: { color: "#666" },
 
-  container: { flex: 1, backgroundColor: "#000" },
-  smallStatus: {
-    position: "absolute",
-    top: 8,
-    left: 12,
-    right: 12,
-    color: "#fff",
-    zIndex: 10,
-  },
-
-  preview: { flex: 1, width: "100%", backgroundColor: "#000", marginTop: 40 },
-  bottomRow: {
-    height: 100,
-    backgroundColor: "#000",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-  },
-
   primaryButton: {
     marginTop: 18,
     paddingVertical: 12,
@@ -1127,7 +1343,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     padding: 20,
     borderRadius: 12,
-    width: "80%",
     alignItems: "stretch",
   },
   modalTitle: { fontSize: 20, fontWeight: "700", marginBottom: 10 },
@@ -1144,11 +1359,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
     backgroundColor: "#fff",
-    // remove hard width here — child layout decides width
     marginBottom: 8,
+    minHeight: 44,
   },
 
   // Meal selector
@@ -1190,5 +1405,53 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 10,
     backgroundColor: "#4caf50",
+  },
+
+  // accessory
+  accessoryContainer: {
+    backgroundColor: "#f2f2f2",
+    borderTopWidth: 1,
+    borderColor: "#d0d0d0",
+    padding: 6,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  accessoryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  accessoryButtonText: {
+    color: "#007aff",
+    fontWeight: "700",
+  },
+
+  // small inline done for android
+  inlineDone: {
+    marginLeft: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inlineDoneText: {
+    fontSize: 14,
+  },
+
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
+    marginTop: 8,
+  },
+
+  rowInput: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
   },
 });
